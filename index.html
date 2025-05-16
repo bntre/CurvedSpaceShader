@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Curved Space Shader</title>
+  <style>body { margin: 0; overflow: hidden; } canvas { display: block; }</style>
+</head>
+<body>
+
+  <!-- Backbeat by Kevin MacLeod, CC0 https://freepd.com/electronic.php (130 bpm) -->
+  <audio id="bg-music" src="https://freepd.com/music/Backbeat.mp3" loop></audio>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three":         "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  
+  <script type="module">
+
+import * as THREE               from 'three';
+import { GLTFLoader }           from 'three/addons/loaders/GLTFLoader.js';
+//import { FBXLoader }            from 'three/addons/loaders/FBXLoader.js';
+//import { DRACOLoader }          from 'three/addons/loaders/DRACOLoader.js';
+//import * as SkeletonUtils       from 'three/addons/utils/SkeletonUtils.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+import { GUI }                  from 'three/addons/libs/lil-gui.module.min.js';
+
+let _camera, _scene, _renderer, _clock;
+
+const _mixers = [];
+
+const _is4D = 1;
+
+// Test shader material
+const _testMaterial = new THREE.ShaderMaterial({
+    defines: {
+        USE_TANGENT: true,
+    },
+    vertexShader: `
+        #include <skinning_pars_vertex>
+        
+        varying vec3 vNormal;
+        void main() {
+            
+                    
+            #include <begin_vertex>
+            #include <beginnormal_vertex>
+            #include <defaultnormal_vertex>
+            
+            #include <skinbase_vertex>
+            #include <skinning_vertex>
+            #include <skinnormal_vertex>
+        //    #include <project_vertex>
+            
+            //vNormal = normalize(normalMatrix * normal);
+            //vNormal = normalize(normalMatrix * objectNormal); // blue on front
+            //vNormal = normalize(objectNormal); // green on front
+            //vNormal = normalize(normalMatrix * objectTangent);
+            vNormal = normalize(objectTangent);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+        }
+    `,
+    fragmentShader: `
+        varying vec3 vNormal;
+        void main() {
+            gl_FragColor = vec4(vNormal * 0.8 + 0.2, 1.0);
+        }
+    `
+});
+
+
+const _testMaterial2_bump = new THREE.ShaderMaterial({
+    defines: {
+        USE_TANGENT:  false, // for bump
+        HAS_TEXTURE:  false,
+        HAS_SKINNING: false,
+        HAS_MORPH:    false,
+    },
+    uniforms: {
+        uTexture: { value: null },
+        uTextureRepeat: { value: new THREE.Vector2(1, 1) }, // Default tiling
+        // Bump
+        uBumpMap: { value: null },
+        uBumpScale: { value: 2.0 },
+    },
+    vertexShader: `
+        #ifdef HAS_SKINNING
+          #include <skinning_pars_vertex>
+        #endif
+        #ifdef HAS_MORPH
+          #include <morphtarget_pars_vertex>
+        #endif
+    
+        varying vec3 vNormal;
+        #ifdef HAS_TEXTURE
+          varying vec2 vUv;
+         #ifdef USE_TANGENT
+          varying vec3 vTangent;
+         #endif
+        #else
+          varying vec3 vColor;
+        #endif
+        
+        void main() {
+            
+            #include <begin_vertex>
+            #include <beginnormal_vertex>
+            #include <defaultnormal_vertex>
+            
+            #ifdef HAS_SKINNING
+              #include <skinbase_vertex>
+              #include <skinning_vertex>
+              #include <skinnormal_vertex>
+            #endif
+            #ifdef HAS_MORPH
+              #include <morphtarget_vertex>
+              #include <morphnormal_vertex>
+            #endif
+            
+            //vNormal = normalize(normalMatrix * normal);
+            vNormal = normalize(normalMatrix * objectNormal);
+            
+            #ifdef HAS_TEXTURE
+              vUv = uv;
+            
+              #ifdef USE_TANGENT
+                vTangent = normalize(normalMatrix * objectTangent);
+              #endif
+            #else
+              vColor = color.rgb;
+            #endif
+            
+            //gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D uTexture;
+        uniform sampler2D uBumpMap;
+        uniform vec2 uTextureRepeat;
+        uniform float uBumpScale;
+
+        varying vec3 vNormal;
+        
+        #ifdef HAS_TEXTURE
+          varying vec2 vUv;
+         #ifdef USE_TANGENT
+          varying vec3 vTangent;
+         #endif
+        #else
+          varying vec3 vColor;
+        #endif
+        
+        void main() {
+            
+            //gl_FragColor = vec4(vNormal * 0.8 + 0.2, 1.0); return; //!!!
+            #ifdef USE_TANGENT
+             //gl_FragColor = vec4(vTangent * 0.8 + 0.2, 1.0); return; //!!!
+            #endif
+            
+            #ifdef HAS_TEXTURE
+              vec2 uv = mod(vUv * uTextureRepeat, 1.0);
+              vec4 col = texture2D(uTexture, uv);
+              //vec4 albedo = vec4(1.0, 1.0, 1.0, 1.0);
+              //col = mix(col, albedo, 0.5);
+              col = pow(col, vec4(0.3)); // gamma
+              col = (col - 0.5) * 1.5 + 0.5; // contrast
+            #else
+              vec4 col = vec4(vColor, 1.0);
+            #endif
+            //gl_FragColor = col; return; //!!! test
+
+            #ifdef USE_TANGENT
+              vec3 n = normalize(vNormal);
+              vec3 t = normalize(vTangent);
+              vec3 b = cross(n, t);
+              mat3 tbn = mat3(t, b, n);
+
+              // Sample bump map and transform to tangent space
+              vec3 bump = texture2D(uBumpMap, vUv).xyz * 2.0 - 1.0;
+              //gl_FragColor = vec4(bump, 1.0); return; //!!!
+              vec3 normal = normalize(n + tbn * bump * uBumpScale);
+            #else
+              vec3 normal = normalize(vNormal);
+            #endif
+
+            // Simple lighting calculation
+            vec3 light = normalize(vec3(1.0, 1.0, 1.0)); //!!! hardcoded direction
+            float lightIntensity = max(dot(normal, light), 0.0);
+            //lightIntensity = 0.5;
+
+            //gl_FragColor = vec4(col.rgb * lightIntensity, col.a);
+            gl_FragColor = vec4(col.rgb * lightIntensity, 1.0);
+        }
+    `,
+});
+
+
+const _curvedMaterial = new THREE.ShaderMaterial({
+    defines: {
+        USE_TANGENT:  false, // for bump
+        HAS_TEXTURE:  false,
+        HAS_SKINNING: false,
+        HAS_MORPH:    false,
+    },
+    uniforms: {
+        uObjectRotation: { value: new THREE.Matrix4() },
+        uViewRotation: { value: new THREE.Matrix4() },
+        //uAlbedo: { value: new THREE.Color(0xffffff) },
+        //uFogColor: { value: new THREE.Color(0x111111) },
+        //uFogShining: { value: 0.5 },
+
+        uTexture: { value: null }, // THREE.Texture
+        uTextureRepeat: { value: new THREE.Vector2(1, 1) }, // Default tiling
+        uBumpMap: { value: null }, // THREE.Texture
+        uBumpScale: { value: 1.0 },
+    },
+//    transparent: true,
+    //blending: THREE.NormalBlending,
+    //blending: THREE.AdditiveBlending,
+    //depthWrite: false, // Disable depth writing for transparent objects
+    
+    
+    vertexShader: `
+        uniform mat4 uObjectRotation;
+        uniform mat4 uViewRotation;
+
+        #ifdef HAS_SKINNING
+          #include <skinning_pars_vertex>
+        #endif
+        #ifdef HAS_MORPH
+          #include <morphtarget_pars_vertex>
+        #endif
+    
+        varying vec3 vNormal;
+        #ifdef HAS_TEXTURE
+          varying vec2 vUv;
+         #ifdef USE_TANGENT
+          varying vec3 vTangent;
+         #endif
+        #else
+          varying vec3 vColor;
+        #endif
+
+        vec4 stereo(vec4 v) {
+            v.xyz /= 1.0 - v.w;
+            v.w = 1.0;
+            return v;
+        }
+
+        vec4 stereo1(vec4 v) {
+            v.xyz /= v.w;
+            float s = dot(v.xyz, v.xyz);
+            v.xyz *= 2.0;
+            v.w = s - 1.0;
+            v /= s + 1.0;
+            return v;
+        }
+
+        void main() {
+            
+            #include <begin_vertex>
+            #include <beginnormal_vertex>
+            #include <defaultnormal_vertex>
+            
+            #ifdef HAS_SKINNING
+              #include <skinbase_vertex>
+              #include <skinning_vertex>
+              #include <skinnormal_vertex>
+            #endif
+            #ifdef HAS_MORPH
+              #include <morphtarget_vertex>
+              #include <morphnormal_vertex>
+            #endif
+            
+            vec4 v = vec4(transformed, 1.0);
+            vec4 vn = v + vec4(objectNormal * 0.001, 0.0);
+#ifdef USE_TANGENT
+            vec4 vt = v + vec4(objectTangent * 0.001, 0.0);
+#endif
+
+            v = modelMatrix * v;
+            vn = modelMatrix * vn;
+
+            v = stereo1(v);
+            vn = stereo1(vn);
+
+            mat4 rot = uViewRotation * uObjectRotation;
+            v  = rot * v;
+            vn = rot * vn;
+
+            v = stereo(v);
+            vn = stereo(vn);
+
+            //vPosition = v.xyz;
+            vNormal = normalize(vn.xyz - v.xyz);
+            
+#ifdef HAS_TEXTURE
+            vUv = uv;
+            
+  #ifdef USE_TANGENT
+            vt = modelMatrix * vt;
+            vt = stereo1(vt);
+            vt = rot * vt;
+            vt = stereo(vt);
+            vTangent = normalize(vt.xyz - v.xyz);
+  #endif
+#else
+            vColor = color.rgb;
+#endif
+
+            gl_Position = projectionMatrix * viewMatrix * v;
+        }
+    `,
+
+    fragmentShader: `
+        uniform sampler2D uTexture;
+        uniform sampler2D uBumpMap;
+        uniform vec2 uTextureRepeat;
+        uniform float uBumpScale;
+
+        varying vec3 vNormal;
+        
+        #ifdef HAS_TEXTURE
+          varying vec2 vUv;
+         #ifdef USE_TANGENT
+          varying vec3 vTangent;
+         #endif
+        #else
+          varying vec3 vColor;
+        #endif
+        
+        void main() {
+            
+            //gl_FragColor = vec4(vNormal * 0.8 + 0.2, 1.0); return; //!!!
+            #ifdef USE_TANGENT
+             //gl_FragColor = vec4(vTangent * 0.8 + 0.2, 1.0); return; //!!!
+            #endif
+            
+            #ifdef HAS_TEXTURE
+              vec2 uv = mod(vUv * uTextureRepeat, 1.0);
+              vec4 col = texture2D(uTexture, uv);
+              //vec4 albedo = vec4(1.0, 1.0, 1.0, 1.0);
+              //col = mix(col, albedo, 0.5);
+            #else
+              vec4 col = vec4(vColor, 1.0);
+            #endif
+            col = pow(col, vec4(0.3)); // gamma
+            col = (col - 0.5) * 1.5 + 0.5; // contrast
+            //gl_FragColor = col; return; //!!! test
+
+            #ifdef USE_TANGENT
+              vec3 n = normalize(vNormal);
+              vec3 t = normalize(vTangent);
+              vec3 b = cross(n, t);
+              mat3 tbn = mat3(t, b, n);
+
+              // Sample bump map and transform to tangent space
+              vec3 bump = texture2D(uBumpMap, vUv).xyz * 2.0 - 1.0;
+              //gl_FragColor = vec4(bump, 1.0); return; //!!!
+              vec3 normal = normalize(n + tbn * bump * uBumpScale);
+            #else
+              vec3 normal = normalize(vNormal);
+            #endif
+
+            // Simple lighting calculation
+            vec3 light = normalize(vec3(1.0, 1.0, 1.0)); //!!! hardcoded direction
+            float lightIntensity = max(dot(normal, light), 0.0);
+            //lightIntensity = 0.5;
+
+            //gl_FragColor = vec4(col.rgb * lightIntensity, col.a);
+            gl_FragColor = vec4(col.rgb * lightIntensity, 1.0);
+        }
+    `,    
+});
+
+
+// Camera
+let _cameraRadius = 2.0;
+function updateCamera() {
+    const maxY = _cameraRadius;
+    const nearZ = 10.0, farZ = -20.0;
+
+    _camera.position.z = nearZ;
+    _camera.near       = 0.0;
+    _camera.far        = nearZ - farZ;
+    
+    const aspect = window.innerWidth / window.innerHeight;
+    _camera.left   = -maxY * aspect;
+    _camera.right  =  maxY * aspect;
+    _camera.bottom = -maxY;
+    _camera.top    =  maxY;
+    
+    _camera.updateProjectionMatrix();
+}
+
+// Matrix4 utils
+function MakeRotation(i, j, a) {
+    let m4 = new THREE.Matrix4(); // identity
+    function _set(i, j, v) { m4.elements[i * 4 + j] = v; }
+    function _setRotation(i, j, c, s) {
+        _set(i, i, c); _set(i, j, -s);
+        _set(j, i, s); _set(j, j, c);
+    }
+    let c = Math.cos(a);
+    let s = Math.sin(a);
+    _setRotation(i, j, c, s);
+    return m4;
+}
+
+
+function loadGLTF( gltfLoader, filePath, onLoad ) {
+    gltfLoader.load(
+        filePath,
+        function ( gltf ) { 
+            onLoad( gltf.scene, gltf.animations ); // main callback
+        },
+        function ( xhr ) {
+            //console.log( filePath, (100 * xhr.loaded / xhr.total) + '% loaded' );
+        },
+        function ( error ) {
+            console.error( filePath, 'Loading error', error );
+        }
+    );
+}
+
+
+function addModelWithPivot( model, modelScale, modelShift, pivotScale ) {
+    if ( modelScale ) {
+        model.scale.setScalar( modelScale );
+    }
+    if ( modelShift ) {
+        model.position.copy( modelShift );
+    }
+    
+    const pivot = new THREE.Object3D();
+    pivot.add( model );
+    
+    if ( pivotScale ) {
+        pivot.scale.setScalar( pivotScale );
+    }
+    
+    _scene.add( pivot );
+    
+    return pivot;
+}
+
+
+function initMaterial( model, materialsArray )
+{
+    model.traverse( function ( object ) {
+        if ( object.isMesh ) {
+            //console.log("mesh found", object);
+            
+            const hasTexture = object.material.map != null; // vertex solors otherwise
+            const hasBump    = object.material.normalMap != null;
+            const isSkinning = !!object.isSkinnedMesh;
+            const isMorph    = !!object.morphTargetDictionary;
+            
+            if ( 1 && !object.geometry.attributes.normal ) {
+                object.geometry = object.geometry.toNonIndexed(); // for flat shading look
+                object.geometry.computeVertexNormals();
+            }
+            if ( 1 && hasBump && !object.geometry.attributes.tangent ) {
+                object.geometry = BufferGeometryUtils.mergeVertices(object.geometry); // geometry.index needed to computeTangents
+                object.geometry.computeTangents();
+            }
+            
+            /*
+            if ( 0 && object.material.map ) { // show a texture
+                const texture = object.material.map;
+                const canvas = document.createElement('canvas');
+                canvas.width = texture.image.width;
+                canvas.height = texture.image.height;
+                canvas.getContext('2d').drawImage(texture.image, 0, 0);
+                // Create an image element to display the normal map
+                const img = document.createElement('img');
+                img.src = canvas.toDataURL();
+                document.body.appendChild(img);
+            }
+            */
+
+            // Test 1
+            //object.material = _testMaterial;
+            
+            // Test 2
+            if (1) {
+                let m;
+                if (_is4D) {
+                    m = _curvedMaterial.clone();
+                } else {
+                    m = _testMaterial2_bump.clone();
+                }
+                
+                materialsArray.push(m);
+                
+                m.vertexColors         = !hasTexture;
+                m.defines.USE_TANGENT  = hasBump;
+                m.defines.HAS_TEXTURE  = hasTexture;
+                m.defines.HAS_SKINNING = isSkinning;
+                m.defines.HAS_MORPH    = isMorph;
+                
+                if (hasTexture) {
+                    m.uniforms.uTexture.value = object.material.map;
+                    //m.uniforms.uTextureRepeat.value.set(10, 10);
+                }
+                if (hasBump) {
+                    m.uniforms.uBumpMap.value = object.material.normalMap;
+                    //m.uniforms.uBumpScale.value = 1.0;
+                }
+                
+                //if (_is4D && rot4d) {
+                //    m.uniforms.uObjectRotation.value = rot4d;
+                //}
+                
+                object.material = m;
+            }
+        }
+    } );
+}
+
+function playAnimation( model, animation, timeScale = 1.0, startAt = 0.0 ) {
+    const mixer = new THREE.AnimationMixer( model );
+    mixer.clipAction( animation )
+        .setEffectiveTimeScale( timeScale )
+        .startAt( startAt )
+        .play();
+    _mixers.push( mixer );
+}
+
+
+const _viewRotation = new THREE.Matrix4();
+
+const _horseMaterials = [];
+const _girlMaterials = [];
+
+let   _girlPivot;
+const _horsePivots = [];
+
+
+
+let _prevMouseX = 0, _prevMouseY = 0;
+
+
+function updateMatrices(totalSecs, deltaSecs) {
+
+    /*
+    // Side rotation
+    if (_dragMouseX !== 0 || _dragMouseY !== 0) {
+        const aX = deltaSecs * Math.PI * _dragMouseX * -0.1;
+        const aY = deltaSecs * Math.PI * _dragMouseY *  0.1;
+        if (_dragMode == 1) { // Ctrl
+            _viewRotation.premultiply(MakeRotation(0, 3, aX));
+            _viewRotation.premultiply(MakeRotation(1, 3, aY));
+        } else {
+            _viewRotation.premultiply(MakeRotation(2, 0, aX));
+            _viewRotation.premultiply(MakeRotation(2, 1, aY));
+        }
+        _dragMouseX = 0;
+        _dragMouseY = 0;
+    }
+    */
+
+    if (_is4D) { // Curved space
+        
+        
+    
+        // Flying
+        ///_viewRotation.premultiply(MakeRotation(3, 2, da * _flyingSpeed));
+
+        // and propagate to materials
+
+        for (const m of _girlMaterials) {
+            m.uniforms.uViewRotation.value = _viewRotation;
+        }
+
+        let i = 0;
+        for (const m of _horseMaterials) {
+            m.uniforms.uViewRotation.value = _viewRotation;
+            
+            // Running horses
+            const rot4d = MakeRotation(3, 0, Math.PI * (0.5 + 0.03*(i%2==0 ? 1 : -1)));
+            rot4d.premultiply(MakeRotation(2, 0, 2*Math.PI * (totalSecs/8 + i/_horseMaterials.length))); // full circle for 8 secs
+            m.uniforms.uObjectRotation.value = rot4d;
+            ++i;
+        }
+    }
+    else { // 3D
+        _scene.setRotationFromMatrix(_viewRotation);
+    }
+}
+
+
+init();
+
+function init() {
+
+    _camera = new THREE.OrthographicCamera();
+    updateCamera();
+
+    _clock = new THREE.Clock();
+
+    _scene = new THREE.Scene();
+    _scene.background = new THREE.Color( 0x333333 );
+    //_scene.fog = new THREE.Fog( 0xa0a0a0, 10, 50 );
+
+    //const dirLight = new THREE.DirectionalLight( 0xffffff, 3 );
+    //dirLight.position.set( 10, 10, 10 );
+    //_scene.add( dirLight );
+
+    if (0) { //!!! debug sizing
+        const ground = new THREE.Mesh( new THREE.CircleGeometry( 1, 8, 0, Math.PI ) ); // a half of unit circle
+        ground.rotation.z = - Math.PI / 2;
+        _scene.add( ground );
+    }
+
+    // Load and add models to the scene
+    const gltfLoader = new GLTFLoader();    
+    const gltfDir = 'https://rawcdn.githack.com/mrdoob/three.js/r160/examples/models/gltf/';
+    loadGLTF( gltfLoader, gltfDir + 'Horse.glb', ( sourceModel, animations ) => {
+        const horseCount = _is4D ? 10 : 1;
+        for (let i = 0; i < horseCount; ++i) {
+            const model = sourceModel.clone();
+            const pivot = addModelWithPivot( model, 0.01, new THREE.Vector3( 0, -1.0, 0 ), 0.1 );
+            _horsePivots.push(pivot);
+            initMaterial( model, _horseMaterials );            
+            playAnimation( model, animations[0], 1.625, -1.0 * Math.random() ); // 40 -> 130/2 bpm
+        }
+    });
+    loadGLTF( gltfLoader, gltfDir + 'Michelle.glb', ( model, animations ) => {
+        _girlPivot = addModelWithPivot( model, 1.0, new THREE.Vector3( 0, -0.8, 0 ), 2.0 );
+        initMaterial( model, _girlMaterials );
+        playAnimation( model, animations[0], 0.61 ); // 106.6 -> 130/2 bpm
+    });
+
+    _renderer = new THREE.WebGLRenderer( { antialias: true } );
+    _renderer.setPixelRatio( window.devicePixelRatio );
+    _renderer.setSize( window.innerWidth, window.innerHeight );
+    _renderer.setAnimationLoop( animate );
+    
+    document.body.appendChild( _renderer.domElement );
+
+    window.addEventListener( 'resize', () => {
+        updateCamera();
+        _renderer.setSize( window.innerWidth, window.innerHeight );
+    });
+
+    _renderer.domElement.addEventListener('wheel', (e) => {
+        const delta = e.deltaY * [1, 16, window.innerHeight][e.deltaMode % 3] / 100; // try to normalize (pixel, line, page)
+        if (_is4D) {
+            if (e.ctrlKey) {
+                // Evert by Z
+                e.preventDefault();
+                _viewRotation.premultiply(MakeRotation(2, 3, delta * 0.04));
+            } else if (e.shiftKey) {
+                // Rotate clockwise
+                _viewRotation.premultiply(MakeRotation(0, 1, delta * 0.1));
+            } else {
+                // Zoom
+                _cameraRadius *= Math.exp(delta * 0.1);
+                updateCamera();
+            }
+        } else {
+            _cameraRadius *= Math.exp(delta * 0.1);
+            updateCamera();
+        }
+    });
+    _renderer.domElement.addEventListener('mousedown', (e) => {
+        if (e.buttons == 1) {
+            _prevMouseX = e.clientX;
+            _prevMouseY = e.clientY;
+        }
+    });
+    _renderer.domElement.addEventListener('mousemove', (e) => {
+        if (e.buttons == 1) {
+            // Dragging
+            const dX =  (e.clientX - _prevMouseX) / window.innerHeight; // normalize
+            const dY = -(e.clientY - _prevMouseY) / window.innerHeight;
+            _prevMouseX = e.clientX;
+            _prevMouseY = e.clientY;
+            
+            if (e.ctrlKey) {
+                // Evert by X/Y
+                _viewRotation.premultiply(MakeRotation(3, 0, Math.PI*2 * dX));
+                _viewRotation.premultiply(MakeRotation(3, 1, Math.PI*2 * dY));
+            }
+            else if (e.shiftKey) {
+                // Scale scene objects
+                for (const pivot of _horsePivots) {
+                    pivot.scale.multiplyScalar(Math.exp(dX * 5.0));
+                }
+                if (_girlPivot) {
+                    _girlPivot.scale.multiplyScalar(Math.exp(dY * 5.0));
+                }
+            }
+            else {
+                // Just rotate
+                _viewRotation.premultiply(MakeRotation(0, 2, Math.PI*2 * dX));
+                _viewRotation.premultiply(MakeRotation(1, 2, Math.PI*2 * dY));
+            }
+        }
+    }, { capture: true } );
+    
+    // GUI
+    const audio = document.getElementById('bg-music');
+    const gui = new GUI();
+    const controls = {
+        play: () => { if (audio.paused) audio.play(); else audio.pause(); },
+    };
+    gui.add(controls, 'play').name('Play music');
+}
+
+function animate() {
+
+    const delta = _clock.getDelta();
+    const time = _clock.getElapsedTime(); //!!! resetting _clock.oldTime twice
+    
+    updateMatrices(time, delta);
+
+    for ( const mixer of _mixers ) mixer.update( delta );
+
+    _renderer.render( _scene, _camera );
+}
+
+  </script>
+</body>
+</html>
