@@ -8,8 +8,7 @@
 </head>
 <body>
 
-  <!-- Backbeat by Kevin MacLeod, CC0 https://freepd.com/electronic.php (130 bpm) -->
-  <audio id="bg-music" src="https://freepd.com/music/Backbeat.mp3" loop></audio>
+  <audio id="bg-music" src="https://freepd.com/music/Backbeat.mp3" loop></audio> <!-- Backbeat by Kevin MacLeod, CC0 https://freepd.com/electronic.php (130 bpm) -->
 
   <script type="importmap">
     {
@@ -24,11 +23,11 @@
 
 import * as THREE               from 'three';
 import { GLTFLoader }           from 'three/addons/loaders/GLTFLoader.js';
-//import { FBXLoader }            from 'three/addons/loaders/FBXLoader.js';
-//import { DRACOLoader }          from 'three/addons/loaders/DRACOLoader.js';
-//import * as SkeletonUtils       from 'three/addons/utils/SkeletonUtils.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { GUI }                  from 'three/addons/libs/lil-gui.module.min.js';
+
+const threeJsUrl = 'https://rawcdn.githack.com/mrdoob/three.js/r160/';
+
 
 let _camera, _scene, _renderer, _clock;
 
@@ -381,9 +380,9 @@ const _curvedMaterial = new THREE.ShaderMaterial({
 
 
 // Camera
-let _cameraRadius = 2.0;
-function updateCamera() {
-    const maxY = _cameraRadius;
+function updateCamera(radius) {
+    let maxY = radius ?? _camera.top;
+    
     const nearZ = 10.0, farZ = -20.0;
 
     _camera.position.z = nearZ;
@@ -399,16 +398,22 @@ function updateCamera() {
     _camera.updateProjectionMatrix();
 }
 
+function zoomCamera(factor) {
+    _camera.top *= factor;
+    updateCamera();
+}
+
+
 // Matrix4 utils
 function MakeRotation(i, j, a) {
-    let m4 = new THREE.Matrix4(); // identity
+    const m4 = new THREE.Matrix4(); // identity
     function _set(i, j, v) { m4.elements[i * 4 + j] = v; }
     function _setRotation(i, j, c, s) {
         _set(i, i, c); _set(i, j, -s);
         _set(j, i, s); _set(j, j, c);
     }
-    let c = Math.cos(a);
-    let s = Math.sin(a);
+    const c = Math.cos(a);
+    const s = Math.sin(a);
     _setRotation(i, j, c, s);
     return m4;
 }
@@ -451,6 +456,17 @@ function addModelWithPivot( model, modelScale, modelShift, pivotScale ) {
 }
 
 
+function playAnimation( model, animation, timeScale = 1.0, startAt = 0.0 ) {
+    const m = new THREE.AnimationMixer( model );
+    m.clipAction( animation )
+        .setEffectiveTimeScale( timeScale )
+        .startAt( startAt )
+        .play();
+    _mixers.push( m );
+    return m;
+}
+
+
 function initMaterial( model, materialsArray )
 {
     model.traverse( function ( object ) {
@@ -471,20 +487,6 @@ function initMaterial( model, materialsArray )
                 object.geometry.computeTangents();
             }
             
-            /*
-            if ( 0 && object.material.map ) { // show a texture
-                const texture = object.material.map;
-                const canvas = document.createElement('canvas');
-                canvas.width = texture.image.width;
-                canvas.height = texture.image.height;
-                canvas.getContext('2d').drawImage(texture.image, 0, 0);
-                // Create an image element to display the normal map
-                const img = document.createElement('img');
-                img.src = canvas.toDataURL();
-                document.body.appendChild(img);
-            }
-            */
-
             // Test 1
             //object.material = _testMaterial;
             
@@ -514,66 +516,33 @@ function initMaterial( model, materialsArray )
                     //m.uniforms.uBumpScale.value = 1.0;
                 }
                 
-                //if (_is4D && rot4d) {
-                //    m.uniforms.uObjectRotation.value = rot4d;
-                //}
-                
                 object.material = m;
             }
         }
     } );
 }
 
-function playAnimation( model, animation, timeScale = 1.0, startAt = 0.0 ) {
-    const mixer = new THREE.AnimationMixer( model );
-    mixer.clipAction( animation )
-        .setEffectiveTimeScale( timeScale )
-        .startAt( startAt )
-        .play();
-    _mixers.push( mixer );
-}
 
+const _girlMaterials = [], _horseMaterials = [];
+const _girlPivots    = [], _horsePivots    = [];
+const _girlMixers    = [], _horseMixers    = [];
 
 const _viewRotation = new THREE.Matrix4();
 
-const _horseMaterials = [];
-const _girlMaterials = [];
-
-let   _girlPivot;
-const _horsePivots = [];
-
-
-
 let _prevMouseX = 0, _prevMouseY = 0;
+
+let _flyingSpeedX = 0.0, _flyingSpeedY = 0.0; // rotational in PI/sec - controlled by cursor keys
 
 
 function updateMatrices(totalSecs, deltaSecs) {
 
-    /*
-    // Side rotation
-    if (_dragMouseX !== 0 || _dragMouseY !== 0) {
-        const aX = deltaSecs * Math.PI * _dragMouseX * -0.1;
-        const aY = deltaSecs * Math.PI * _dragMouseY *  0.1;
-        if (_dragMode == 1) { // Ctrl
-            _viewRotation.premultiply(MakeRotation(0, 3, aX));
-            _viewRotation.premultiply(MakeRotation(1, 3, aY));
-        } else {
-            _viewRotation.premultiply(MakeRotation(2, 0, aX));
-            _viewRotation.premultiply(MakeRotation(2, 1, aY));
-        }
-        _dragMouseX = 0;
-        _dragMouseY = 0;
-    }
-    */
-
     if (_is4D) { // Curved space
         
-        
-    
-        // Flying
-        ///_viewRotation.premultiply(MakeRotation(3, 2, da * _flyingSpeed));
+        // Apply flying
+        if (_flyingSpeedX) _viewRotation.premultiply(MakeRotation(3, 0, Math.PI * _flyingSpeedX * deltaSecs));
+        if (_flyingSpeedY) _viewRotation.premultiply(MakeRotation(3, 2, Math.PI * _flyingSpeedY * deltaSecs));
 
-        // and propagate to materials
+        // Propagate matrices to material
 
         for (const m of _girlMaterials) {
             m.uniforms.uViewRotation.value = _viewRotation;
@@ -584,7 +553,7 @@ function updateMatrices(totalSecs, deltaSecs) {
             m.uniforms.uViewRotation.value = _viewRotation;
             
             // Running horses
-            const rot4d = MakeRotation(3, 0, Math.PI * (0.5 + 0.03*(i%2==0 ? 1 : -1)));
+            const rot4d = MakeRotation(3, 0, Math.PI * (0.5 + 0.04*(i%2 ? 1 : -1)));
             rot4d.premultiply(MakeRotation(2, 0, 2*Math.PI * (totalSecs/8 + i/_horseMaterials.length))); // full circle for 8 secs
             m.uniforms.uObjectRotation.value = rot4d;
             ++i;
@@ -601,17 +570,12 @@ init();
 function init() {
 
     _camera = new THREE.OrthographicCamera();
-    updateCamera();
+    updateCamera(2.0);
 
     _clock = new THREE.Clock();
 
     _scene = new THREE.Scene();
     _scene.background = new THREE.Color( 0x333333 );
-    //_scene.fog = new THREE.Fog( 0xa0a0a0, 10, 50 );
-
-    //const dirLight = new THREE.DirectionalLight( 0xffffff, 3 );
-    //dirLight.position.set( 10, 10, 10 );
-    //_scene.add( dirLight );
 
     if (0) { //!!! debug sizing
         const ground = new THREE.Mesh( new THREE.CircleGeometry( 1, 8, 0, Math.PI ) ); // a half of unit circle
@@ -620,22 +584,22 @@ function init() {
     }
 
     // Load and add models to the scene
-    const gltfLoader = new GLTFLoader();    
-    const gltfDir = 'https://rawcdn.githack.com/mrdoob/three.js/r160/examples/models/gltf/';
-    loadGLTF( gltfLoader, gltfDir + 'Horse.glb', ( sourceModel, animations ) => {
+    const gltfLoader = new GLTFLoader();
+    // Horses
+    loadGLTF( gltfLoader, threeJsUrl + 'examples/models/gltf/Horse.glb', ( sourceModel, animations ) => {
         const horseCount = _is4D ? 10 : 1;
         for (let i = 0; i < horseCount; ++i) {
             const model = sourceModel.clone();
-            const pivot = addModelWithPivot( model, 0.01, new THREE.Vector3( 0, -1.0, 0 ), 0.1 );
-            _horsePivots.push(pivot);
+            _horsePivots.push( addModelWithPivot( model, 0.01, new THREE.Vector3( 0, -1.0, 0 ), 0.1 ) );
             initMaterial( model, _horseMaterials );            
-            playAnimation( model, animations[0], 1.625, -1.0 * Math.random() ); // 40 -> 130/2 bpm
+            _horseMixers.push( playAnimation( model, animations[0], 1.625, -1.0 * Math.random() ) ); // 40 -> 130/2 bpm
         }
     });
-    loadGLTF( gltfLoader, gltfDir + 'Michelle.glb', ( model, animations ) => {
-        _girlPivot = addModelWithPivot( model, 1.0, new THREE.Vector3( 0, -0.8, 0 ), 2.0 );
+    // Michelle girl
+    loadGLTF( gltfLoader, threeJsUrl + 'examples/models/gltf/Michelle.glb', ( model, animations ) => {
+        _girlPivots.push( addModelWithPivot( model, 1.0, new THREE.Vector3( 0, -0.8, 0 ), 2.0 ) );
         initMaterial( model, _girlMaterials );
-        playAnimation( model, animations[0], 0.61 ); // 106.6 -> 130/2 bpm
+        _girlMixers.push( playAnimation( model, animations[0], 0.61 ) ); // 106.6 -> 130/2 bpm
     });
 
     _renderer = new THREE.WebGLRenderer( { antialias: true } );
@@ -662,12 +626,10 @@ function init() {
                 _viewRotation.premultiply(MakeRotation(0, 1, delta * 0.1));
             } else {
                 // Zoom
-                _cameraRadius *= Math.exp(delta * 0.1);
-                updateCamera();
+                zoomCamera(Math.exp(delta * 0.1));
             }
         } else {
-            _cameraRadius *= Math.exp(delta * 0.1);
-            updateCamera();
+            zoomCamera(Math.exp(delta * 0.1));
         }
     });
     _renderer.domElement.addEventListener('mousedown', (e) => {
@@ -691,12 +653,8 @@ function init() {
             }
             else if (e.shiftKey) {
                 // Scale scene objects
-                for (const pivot of _horsePivots) {
-                    pivot.scale.multiplyScalar(Math.exp(dX * 5.0));
-                }
-                if (_girlPivot) {
-                    _girlPivot.scale.multiplyScalar(Math.exp(dY * 5.0));
-                }
+                for (const p of _horsePivots) p.scale.multiplyScalar(Math.exp(dX * 5.0));
+                for (const p of  _girlPivots) p.scale.multiplyScalar(Math.exp(dY * 5.0));
             }
             else {
                 // Just rotate
@@ -705,24 +663,52 @@ function init() {
             }
         }
     }, { capture: true } );
+    document.addEventListener('keydown', (e) => {
+        const dirX = e.code == 'ArrowRight' ? 1 :
+                     e.code == 'ArrowLeft'  ? -1 : 0;
+        const dirY = e.code == 'ArrowUp'    ? 1 :
+                     e.code == 'ArrowDown'  ? -1 : 0;
+        if (dirX || dirY) {
+            e.preventDefault();
+            _flyingSpeedX += 0.05 * dirX;
+            _flyingSpeedY += 0.05 * dirY;
+        } else if (e.code == 'End') { // Stop flying
+            e.preventDefault();
+            _flyingSpeedX = 0.0;
+            _flyingSpeedY = 0.0;
+        } else if (e.code == 'Home') { // Reset
+            e.preventDefault();
+            _viewRotation.identity();
+            _flyingSpeedX = 0.0;
+            _flyingSpeedY = 0.0;
+            updateCamera(2.0);
+        } else if (e.code == 'KeyP') { // pause/play animations
+            const ms = e.shiftKey ? _horseMixers : _girlMixers;
+            for (const m of ms) m.paused = !m.paused;
+        }
+    });
     
     // GUI
-    const audio = document.getElementById('bg-music');
-    const gui = new GUI();
-    const controls = {
-        play: () => { if (audio.paused) audio.play(); else audio.pause(); },
-    };
-    gui.add(controls, 'play').name('Play music');
+    if (1) {
+        const audio = document.getElementById('bg-music');
+        const gui = new GUI();
+        const controls = {
+            play: () => { if (audio.paused) audio.play(); else audio.pause(); },
+        };
+        gui.add(controls, 'play').name('Play music');
+    }
 }
 
 function animate() {
 
     const delta = _clock.getDelta();
-    const time = _clock.getElapsedTime(); //!!! resetting _clock.oldTime twice
+    const time = _clock.getElapsedTime(); //!!! resetting _clock.oldTime twice here
     
-    updateMatrices(time, delta);
+    updateMatrices( time, delta );
 
-    for ( const mixer of _mixers ) mixer.update( delta );
+    for ( const m of _mixers ) {
+        if ( !m.paused ) m.update( delta );
+    }
 
     _renderer.render( _scene, _camera );
 }
