@@ -523,15 +523,35 @@ function initMaterial( model, materialsArray )
 }
 
 
-const _girlMaterials = [], _horseMaterials = [];
-const _girlPivots    = [], _horsePivots    = [];
-const _girlMixers    = [], _horseMixers    = [];
+class Layer {  // for separate control
+    constructor() {
+        this.materials  = [];
+        this.models     = [];
+        this.pivots     = [];
+        this.mixers     = [];
+    }
+}
+const _girl   = new Layer();
+const _horses = new Layer();
 
-const _viewRotation = new THREE.Matrix4();
+let _horseDistance = 0.04; // rotational, in parts of Math.PI
+
+const _viewRotation = new THREE.Matrix4(); // 4d rotation
 
 let _prevMouseX = 0, _prevMouseY = 0;
 
 let _flyingSpeedX = 0.0, _flyingSpeedY = 0.0; // rotational in PI/sec - controlled by cursor keys
+
+
+function resetScene() { //!!! hardcoded constants
+    _viewRotation.identity();
+    _flyingSpeedX = 0.0;
+    _flyingSpeedY = 0.0;
+    _horseDistance = 0.04;
+    for (const p of _horses.pivots) p.scale.setScalar(0.1);
+    for (const p of   _girl.pivots) p.scale.setScalar(2.0);
+    updateCamera(2.0);
+}
 
 
 function updateMatrices(totalSecs, deltaSecs) {
@@ -544,17 +564,17 @@ function updateMatrices(totalSecs, deltaSecs) {
 
         // Propagate matrices to material
 
-        for (const m of _girlMaterials) {
+        for (const m of _girl.materials) {
             m.uniforms.uViewRotation.value = _viewRotation;
         }
 
         let i = 0;
-        for (const m of _horseMaterials) {
+        for (const m of _horses.materials) {
             m.uniforms.uViewRotation.value = _viewRotation;
             
             // Running horses
-            const rot4d = MakeRotation(3, 0, Math.PI * (0.5 + 0.04*(i%2 ? 1 : -1)));
-            rot4d.premultiply(MakeRotation(2, 0, 2*Math.PI * (totalSecs/8 + i/_horseMaterials.length))); // full circle for 8 secs
+            const rot4d = MakeRotation(3, 0, Math.PI * (0.5 + _horseDistance/2 * (i%2 ? -1 : 1)));
+            rot4d.premultiply(MakeRotation(2, 0, 2*Math.PI * (totalSecs/8 + i/_horses.materials.length))); // full circle for 8 secs
             m.uniforms.uObjectRotation.value = rot4d;
             ++i;
         }
@@ -590,16 +610,18 @@ function init() {
         const horseCount = _is4D ? 10 : 1;
         for (let i = 0; i < horseCount; ++i) {
             const model = sourceModel.clone();
-            _horsePivots.push( addModelWithPivot( model, 0.01, new THREE.Vector3( 0, -1.0, 0 ), 0.1 ) );
-            initMaterial( model, _horseMaterials );            
-            _horseMixers.push( playAnimation( model, animations[0], 1.625, -1.0 * Math.random() ) ); // 40 -> 130/2 bpm
+            _horses.models.push( model );
+            _horses.pivots.push( addModelWithPivot( model, 0.01, new THREE.Vector3( 0, -1.0, 0 ), 0.1 ) );
+            initMaterial( model, _horses.materials );
+            _horses.mixers.push( playAnimation( model, animations[0], 1.625, -1.0 * Math.random() ) ); // sync to music: 40 -> 130/2 bpm
         }
     });
     // Michelle girl
     loadGLTF( gltfLoader, threeJsUrl + 'examples/models/gltf/Michelle.glb', ( model, animations ) => {
-        _girlPivots.push( addModelWithPivot( model, 1.0, new THREE.Vector3( 0, -0.8, 0 ), 2.0 ) );
-        initMaterial( model, _girlMaterials );
-        _girlMixers.push( playAnimation( model, animations[0], 0.61 ) ); // 106.6 -> 130/2 bpm
+        _girl.models.push( model );
+        _girl.pivots.push( addModelWithPivot( model, 1.0, new THREE.Vector3( 0, -0.8, 0 ), 2.0 ) );
+        initMaterial( model, _girl.materials );
+        _girl.mixers.push( playAnimation( model, animations[0], 0.61 ) ); // sync to music: 106.6 -> 130/2 bpm
     });
 
     _renderer = new THREE.WebGLRenderer( { antialias: true } );
@@ -653,8 +675,13 @@ function init() {
             }
             else if (e.shiftKey) {
                 // Scale scene objects
-                for (const p of _horsePivots) p.scale.multiplyScalar(Math.exp(dX * 5.0));
-                for (const p of  _girlPivots) p.scale.multiplyScalar(Math.exp(dY * 5.0));
+                for (const p of _horses.pivots) p.scale.multiplyScalar(Math.exp(dX * 5.0));
+                for (const p of   _girl.pivots) p.scale.multiplyScalar(Math.exp(dY * 5.0));
+            }
+            else if (e.altKey) {
+                // Alternative movement
+                for (const m of _girl.models) m.position.add(new THREE.Vector3(dX, dY, 0)); // girl pre-projective position
+                //_horseDistance += dX * 0.5;
             }
             else {
                 // Just rotate
@@ -678,12 +705,9 @@ function init() {
             _flyingSpeedY = 0.0;
         } else if (e.code == 'Home') { // Reset
             e.preventDefault();
-            _viewRotation.identity();
-            _flyingSpeedX = 0.0;
-            _flyingSpeedY = 0.0;
-            updateCamera(2.0);
+            resetScene();
         } else if (e.code == 'KeyP') { // pause/play animations
-            const ms = e.shiftKey ? _horseMixers : _girlMixers;
+            const ms = (e.shiftKey ? _horses : _girl).mixers;
             for (const m of ms) m.paused = !m.paused;
         }
     });
