@@ -5,6 +5,8 @@ Now it's rewritten in GLSL for [three.js](https://threejs.org/).
 
 **Try it interactively:** [https://bntre.github.io/CurvedSpaceShader/](https://bntre.github.io/CurvedSpaceShader/)  
 
+**Watch the demo video:** [https://www.youtube.com/watch?v=yhRXQAb-uh0](https://www.youtube.com/watch?v=yhRXQAb-uh0)
+
 ## Math Behind the Effect
 
 ![Stereographic Projection](https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Stereographic_projection_in_3D.svg/300px-Stereographic_projection_in_3D.svg.png)
