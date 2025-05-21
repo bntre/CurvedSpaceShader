@@ -9,7 +9,7 @@ Now it's rewritten in GLSL for [three.js](https://threejs.org/).
 
 ## Math Behind the Effect
 
-![Stereographic Projection](https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Stereographic_projection_in_3D.svg/300px-Stereographic_projection_in_3D.svg.png)
+<img src="https://upload.wikimedia.org/wikipedia/commons/8/85/Stereographic_projection_in_3D.png" width="400" alt="Stereographic Projection"/>
 
 To show curved space (see [Spherical Geometry](https://en.wikipedia.org/wiki/Spherical_geometry)), each 3D model goes through a special transformation using 4D rotation and projection.
 
