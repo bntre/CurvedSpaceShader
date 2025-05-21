@@ -12,7 +12,8 @@
 </head>
 <body>
 
-  <audio id="bg-music" src="https://freepd.com/music/Backbeat.mp3" loop></audio> <!-- Backbeat by Kevin MacLeod, CC0 https://freepd.com/electronic.php (130 bpm) -->
+  <!-- Music: Backbeat by Kevin MacLeod, CC0 https://freepd.com/electronic.php (130 bpm) -->
+  <audio id="bg-music" src="https://freepd.com/music/Backbeat.mp3" loop></audio>
 
   <script type="importmap">
     {
@@ -32,52 +33,14 @@ import { GUI }                  from 'three/addons/libs/lil-gui.module.min.js';
 
 const threeJsUrl = 'https://rawcdn.githack.com/mrdoob/three.js/r160/';
 
-
 let _camera, _scene, _renderer, _clock;
 
 const _mixers = [];
 
 const _is4D = 1;
 
-// Test shader material
+
 const _testMaterial = new THREE.ShaderMaterial({
-    defines: {
-        USE_TANGENT: true,
-    },
-    vertexShader: `
-        #include <skinning_pars_vertex>
-        
-        varying vec3 vNormal;
-        void main() {
-            
-                    
-            #include <begin_vertex>
-            #include <beginnormal_vertex>
-            #include <defaultnormal_vertex>
-            
-            #include <skinbase_vertex>
-            #include <skinning_vertex>
-            #include <skinnormal_vertex>
-        //    #include <project_vertex>
-            
-            //vNormal = normalize(normalMatrix * normal);
-            //vNormal = normalize(normalMatrix * objectNormal); // blue on front
-            //vNormal = normalize(objectNormal); // green on front
-            //vNormal = normalize(normalMatrix * objectTangent);
-            vNormal = normalize(objectTangent);
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
-        }
-    `,
-    fragmentShader: `
-        varying vec3 vNormal;
-        void main() {
-            gl_FragColor = vec4(vNormal * 0.8 + 0.2, 1.0);
-        }
-    `
-});
-
-
-const _testMaterial2_bump = new THREE.ShaderMaterial({
     defines: {
         USE_TANGENT:  false, // for bump
         HAS_TEXTURE:  false,
@@ -125,7 +88,6 @@ const _testMaterial2_bump = new THREE.ShaderMaterial({
               #include <morphnormal_vertex>
             #endif
             
-            //vNormal = normalize(normalMatrix * normal);
             vNormal = normalize(normalMatrix * objectNormal);
             
             #ifdef HAS_TEXTURE
@@ -138,7 +100,6 @@ const _testMaterial2_bump = new THREE.ShaderMaterial({
               vColor = color.rgb;
             #endif
             
-            //gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
         }
     `,
@@ -169,13 +130,11 @@ const _testMaterial2_bump = new THREE.ShaderMaterial({
             #ifdef HAS_TEXTURE
               vec2 uv = mod(vUv * uTextureRepeat, 1.0);
               vec4 col = texture2D(uTexture, uv);
-              //vec4 albedo = vec4(1.0, 1.0, 1.0, 1.0);
-              //col = mix(col, albedo, 0.5);
-              col = pow(col, vec4(0.3)); // gamma
-              col = (col - 0.5) * 1.5 + 0.5; // contrast
             #else
               vec4 col = vec4(vColor, 1.0);
             #endif
+            col = pow(col, vec4(0.3)); // gamma
+            col = (col - 0.5) * 1.5 + 0.5; // contrast
             //gl_FragColor = col; return; //!!! test
 
             #ifdef USE_TANGENT
@@ -195,7 +154,6 @@ const _testMaterial2_bump = new THREE.ShaderMaterial({
             // Simple lighting calculation
             vec3 light = normalize(vec3(1.0, 1.0, 1.0)); //!!! hardcoded direction
             float lightIntensity = max(dot(normal, light), 0.0);
-            //lightIntensity = 0.5;
 
             //gl_FragColor = vec4(col.rgb * lightIntensity, col.a);
             gl_FragColor = vec4(col.rgb * lightIntensity, 1.0);
@@ -214,21 +172,12 @@ const _curvedMaterial = new THREE.ShaderMaterial({
     uniforms: {
         uObjectRotation: { value: new THREE.Matrix4() },
         uViewRotation: { value: new THREE.Matrix4() },
-        //uAlbedo: { value: new THREE.Color(0xffffff) },
-        //uFogColor: { value: new THREE.Color(0x111111) },
-        //uFogShining: { value: 0.5 },
 
         uTexture: { value: null }, // THREE.Texture
         uTextureRepeat: { value: new THREE.Vector2(1, 1) }, // Default tiling
         uBumpMap: { value: null }, // THREE.Texture
         uBumpScale: { value: 1.0 },
     },
-//    transparent: true,
-    //blending: THREE.NormalBlending,
-    //blending: THREE.AdditiveBlending,
-    //depthWrite: false, // Disable depth writing for transparent objects
-    
-    
     vertexShader: `
         uniform mat4 uObjectRotation;
         uniform mat4 uViewRotation;
@@ -266,7 +215,6 @@ const _curvedMaterial = new THREE.ShaderMaterial({
         }
 
         void main() {
-            
             #include <begin_vertex>
             #include <beginnormal_vertex>
             #include <defaultnormal_vertex>
@@ -283,9 +231,9 @@ const _curvedMaterial = new THREE.ShaderMaterial({
             
             vec4 v = vec4(transformed, 1.0);
             vec4 vn = v + vec4(objectNormal * 0.001, 0.0);
-#ifdef USE_TANGENT
-            vec4 vt = v + vec4(objectTangent * 0.001, 0.0);
-#endif
+            #ifdef USE_TANGENT
+              vec4 vt = v + vec4(objectTangent * 0.001, 0.0);
+            #endif
 
             v = modelMatrix * v;
             vn = modelMatrix * vn;
@@ -300,22 +248,21 @@ const _curvedMaterial = new THREE.ShaderMaterial({
             v = stereo(v);
             vn = stereo(vn);
 
-            //vPosition = v.xyz;
             vNormal = normalize(vn.xyz - v.xyz);
             
-#ifdef HAS_TEXTURE
-            vUv = uv;
+            #ifdef HAS_TEXTURE
+              vUv = uv;
             
-  #ifdef USE_TANGENT
-            vt = modelMatrix * vt;
-            vt = stereo1(vt);
-            vt = rot * vt;
-            vt = stereo(vt);
-            vTangent = normalize(vt.xyz - v.xyz);
-  #endif
-#else
-            vColor = color.rgb;
-#endif
+             #ifdef USE_TANGENT
+              vt = modelMatrix * vt;
+              vt = stereo1(vt);
+              vt = rot * vt;
+              vt = stereo(vt);
+              vTangent = normalize(vt.xyz - v.xyz);
+             #endif
+            #else
+              vColor = color.rgb;
+            #endif
 
             gl_Position = projectionMatrix * viewMatrix * v;
         }
@@ -348,14 +295,12 @@ const _curvedMaterial = new THREE.ShaderMaterial({
             #ifdef HAS_TEXTURE
               vec2 uv = mod(vUv * uTextureRepeat, 1.0);
               vec4 col = texture2D(uTexture, uv);
-              //vec4 albedo = vec4(1.0, 1.0, 1.0, 1.0);
-              //col = mix(col, albedo, 0.5);
             #else
               vec4 col = vec4(vColor, 1.0);
             #endif
             col = pow(col, vec4(0.3)); // gamma
             col = (col - 0.5) * 1.5 + 0.5; // contrast
-            //gl_FragColor = col; return; //!!! test
+            //gl_FragColor = col; return; //!!!
 
             #ifdef USE_TANGENT
               vec3 n = normalize(vNormal);
@@ -372,12 +317,10 @@ const _curvedMaterial = new THREE.ShaderMaterial({
             #endif
 
             // Simple lighting calculation
-            vec3 light = normalize(vec3(1.0, 1.0, 1.0)); //!!! hardcoded direction
+            vec3 light = normalize(vec3(1.0, 1.0, 1.0)); //!!! hardcoded light direction
             float lightIntensity = max(dot(normal, light), 0.0);
-            //lightIntensity = 0.5;
 
-            //gl_FragColor = vec4(col.rgb * lightIntensity, col.a);
-            gl_FragColor = vec4(col.rgb * lightIntensity, 1.0);
+            gl_FragColor = vec4(col.rgb * lightIntensity, col.a);
         }
     `,    
 });
@@ -490,16 +433,12 @@ function initMaterial( model, materialsArray )
                 object.geometry.computeTangents();
             }
             
-            // Test 1
-            //object.material = _testMaterial;
-            
-            // Test 2
             if (1) {
                 let m;
                 if (_is4D) {
                     m = _curvedMaterial.clone();
                 } else {
-                    m = _testMaterial2_bump.clone();
+                    m = _testMaterial.clone();
                 }
                 
                 materialsArray.push(m);
@@ -751,7 +690,7 @@ function init() {
         }
     });
     
-    // Everting on mobile with two fingers
+    // Handle touches
     function getDistance(touch1, touch2) {
         const dx = touch2.clientX - touch1.clientX;
         const dy = touch2.clientY - touch1.clientY;
@@ -760,16 +699,27 @@ function init() {
     canvas.addEventListener('touchstart', (e) => {
         if (e.touches.length === 2) {
             _prevTouchDistance = getDistance(...e.touches);
+        } else if (e.touches.length === 1) {
+            _prevMouseX = e.touches[0].clientX;
+            _prevMouseY = e.touches[0].clientY;
         }
     }, { passive: false });
     canvas.addEventListener('touchmove', e => {
         if (e.touches.length === 2) {
-          e.preventDefault();
-          const newDistance = getDistance(...e.touches);
-          const delta = (_prevTouchDistance - newDistance) / window.innerHeight; // normalize
-          _prevTouchDistance = newDistance;
-          // Evert by Z
-          _viewRotation.premultiply(MakeRotation(2, 3, delta * 0.1));
+            e.preventDefault();
+            const newDistance = getDistance(...e.touches);
+            const delta = (newDistance - _prevTouchDistance) / window.innerHeight; // normalize
+            _prevTouchDistance = newDistance;
+            // Evert by Z
+            _viewRotation.premultiply(MakeRotation(3, 2, delta * 2.0));
+        } else if (e.touches.length === 1) {
+            const dX =  (e.touches[0].clientX - _prevMouseX) / window.innerHeight; // normalize
+            const dY = -(e.touches[0].clientY - _prevMouseY) / window.innerHeight;
+            _prevMouseX = e.touches[0].clientX;
+            _prevMouseY = e.touches[0].clientY;
+            // Just rotate
+            _viewRotation.premultiply(MakeRotation(0, 2, Math.PI*2 * dX * 0.25));
+            _viewRotation.premultiply(MakeRotation(1, 2, Math.PI*2 * dY * 0.25));
         }
     }, { passive: false });
     
@@ -779,8 +729,32 @@ function init() {
         const gui = new GUI();
         const controls = {
             play: () => { if (audio.paused) audio.play(); else audio.pause(); },
+            fly: 0.0,
         };
         gui.add(controls, 'play').name('Play music');
+        gui.add(controls, 'fly', -1, 1).step(0.01).onChange((v) => { _flyingSpeedY = v; }).name('Flying speed');
+        
+        const desc = gui.addFolder('Description').close()
+            .add({ info: '' }, 'info').domElement;
+        desc.innerHTML =
+`<pre>Mouse wheel: camera zoom
+ + Ctrl: rotation ZW (evert)
+ + Shift: rotation XY (spin)
+
+Mouse drag:
+ L-button: rotation XZ, YZ
+  + Ctrl: rotation XW, YW (evert)
+  + Shift: objects pre-proj scale
+ R-button: rotation XY (spin)
+ M-button: girl pre-proj position
+
+Space: pause girl animation
+
+Cursor keys: flying
+End: stop flying
+
+Home: reset scene
+</pre>`;
     }
 }
 
