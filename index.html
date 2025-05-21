@@ -4,7 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Curved Space Shader</title>
-  <style>body { margin: 0; overflow: hidden; } canvas { display: block; }</style>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    .touched { touch-action: none; }
+  </style>
 </head>
 <body>
 
@@ -397,7 +401,6 @@ function updateCamera(radius) {
     
     _camera.updateProjectionMatrix();
 }
-
 function zoomCamera(factor) {
     _camera.top *= factor;
     updateCamera();
@@ -534,22 +537,30 @@ class Layer {  // for separate control
 const _girl   = new Layer();
 const _horses = new Layer();
 
-let _horseDistance = 0.04; // rotational, in parts of Math.PI
+let _horseDistance = 0.06; // rotational, in parts of Math.PI
 
 const _viewRotation = new THREE.Matrix4(); // 4d rotation
 
 let _prevMouseX = 0, _prevMouseY = 0;
+let _prevTouchDistance = 0;
 
 let _flyingSpeedX = 0.0, _flyingSpeedY = 0.0; // rotational in PI/sec - controlled by cursor keys
 
+const _globalTimeScale = 1.0;
 
-function resetScene() { //!!! hardcoded constants
-    _viewRotation.identity();
-    _flyingSpeedX = 0.0;
-    _flyingSpeedY = 0.0;
-    _horseDistance = 0.04;
+
+
+function resetScene(posOnly) { //!!! hardcoded constants
+    if (!posOnly) {
+        _viewRotation.identity();
+        _flyingSpeedX = 0.0;
+        _flyingSpeedY = 0.0;
+        _horseDistance = 0.06;
+    }
     for (const p of _horses.pivots) p.scale.setScalar(0.1);
     for (const p of   _girl.pivots) p.scale.setScalar(2.0);
+    for (const m of   _girl.models) m.position.copy(new THREE.Vector3( 0, -0.8, 0 ));
+    //for (const m of   _girl.mixers) m.setTime(0);
     updateCamera(2.0);
 }
 
@@ -629,14 +640,20 @@ function init() {
     _renderer.setSize( window.innerWidth, window.innerHeight );
     _renderer.setAnimationLoop( animate );
     
-    document.body.appendChild( _renderer.domElement );
+    const canvas = _renderer.domElement;
+    document.body.appendChild( canvas );
 
+    canvas.classList.add('touched');
+    
     window.addEventListener( 'resize', () => {
         updateCamera();
         _renderer.setSize( window.innerWidth, window.innerHeight );
     });
 
-    _renderer.domElement.addEventListener('wheel', (e) => {
+    canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+    });
+    canvas.addEventListener('wheel', (e) => {
         const delta = e.deltaY * [1, 16, window.innerHeight][e.deltaMode % 3] / 100; // try to normalize (pixel, line, page)
         if (_is4D) {
             if (e.ctrlKey) {
@@ -648,45 +665,63 @@ function init() {
                 _viewRotation.premultiply(MakeRotation(0, 1, delta * 0.1));
             } else {
                 // Zoom
-                zoomCamera(Math.exp(delta * 0.1));
+                zoomCamera(Math.exp(delta * 0.05));
             }
         } else {
             zoomCamera(Math.exp(delta * 0.1));
         }
     });
-    _renderer.domElement.addEventListener('mousedown', (e) => {
-        if (e.buttons == 1) {
+    canvas.addEventListener('mousedown', (e) => {
+        if (e.buttons) {
             _prevMouseX = e.clientX;
             _prevMouseY = e.clientY;
         }
     });
-    _renderer.domElement.addEventListener('mousemove', (e) => {
-        if (e.buttons == 1) {
+    canvas.addEventListener('mousemove', (e) => {
+        if (e.buttons) {
             // Dragging
             const dX =  (e.clientX - _prevMouseX) / window.innerHeight; // normalize
             const dY = -(e.clientY - _prevMouseY) / window.innerHeight;
             _prevMouseX = e.clientX;
             _prevMouseY = e.clientY;
-            
-            if (e.ctrlKey) {
-                // Evert by X/Y
-                _viewRotation.premultiply(MakeRotation(3, 0, Math.PI*2 * dX));
-                _viewRotation.premultiply(MakeRotation(3, 1, Math.PI*2 * dY));
-            }
-            else if (e.shiftKey) {
-                // Scale scene objects
-                for (const p of _horses.pivots) p.scale.multiplyScalar(Math.exp(dX * 5.0));
-                for (const p of   _girl.pivots) p.scale.multiplyScalar(Math.exp(dY * 5.0));
-            }
-            else if (e.altKey) {
-                // Alternative movement
-                for (const m of _girl.models) m.position.add(new THREE.Vector3(dX, dY, 0)); // girl pre-projective position
-                //_horseDistance += dX * 0.5;
-            }
-            else {
-                // Just rotate
-                _viewRotation.premultiply(MakeRotation(0, 2, Math.PI*2 * dX));
-                _viewRotation.premultiply(MakeRotation(1, 2, Math.PI*2 * dY));
+            if (e.buttons == 1) {
+                if (e.ctrlKey) {
+                    // Evert by X/Y
+                    _viewRotation.premultiply(MakeRotation(3, 0, Math.PI*2 * dX * 0.25));
+                    _viewRotation.premultiply(MakeRotation(3, 1, Math.PI*2 * dY * 0.25));
+                }
+                else if (e.shiftKey) {
+                    // Scale scene objects
+                    for (const p of _horses.pivots) p.scale.multiplyScalar(Math.exp(dX * 5.0));
+                    for (const p of   _girl.pivots) p.scale.multiplyScalar(Math.exp(dY * 5.0));
+                }
+                else if (e.altKey) {
+                    // Horse distance
+                    _horseDistance += dX * 0.5;
+                }
+                else {
+                    // Just rotate
+                    _viewRotation.premultiply(MakeRotation(0, 2, Math.PI*2 * dX * 0.25));
+                    _viewRotation.premultiply(MakeRotation(1, 2, Math.PI*2 * dY * 0.25));
+                }
+            } else if (e.buttons == 2) {
+                // Rotate clockwise
+                _viewRotation.premultiply(MakeRotation(0, 1, dX * 3.0));
+            } else if (e.buttons == 4) {
+                // Girl pre-projective position
+                if (e.altKey) {
+                    // model space Y
+                    const shift = new THREE.Vector3(0, dY, 0);
+                    for (const m of _girl.models) m.position.add(shift);
+                } else {
+                    // in view plane
+                    const rot = new THREE.Matrix4()
+                        .extractRotation(_viewRotation)
+                        .invert();
+                    const shift = new THREE.Vector3(dX, dY, 0)
+                        .applyMatrix4(rot);
+                    for (const m of _girl.models) m.position.add(shift);
+                }
             }
         }
     }, { capture: true } );
@@ -705,12 +740,38 @@ function init() {
             _flyingSpeedY = 0.0;
         } else if (e.code == 'Home') { // Reset
             e.preventDefault();
-            resetScene();
-        } else if (e.code == 'KeyP') { // pause/play animations
-            const ms = (e.shiftKey ? _horses : _girl).mixers;
-            for (const m of ms) m.paused = !m.paused;
+            if (e.altKey) {
+                resetScene(true); // reset girl position only
+            } else {
+                resetScene();
+            }
+        } else if (e.code == 'Space') { // pause/play girl animation
+            e.preventDefault();
+            for (const m of _girl.mixers) m.paused = !m.paused;
         }
     });
+    
+    // Everting on mobile with two fingers
+    function getDistance(touch1, touch2) {
+        const dx = touch2.clientX - touch1.clientX;
+        const dy = touch2.clientY - touch1.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+            _prevTouchDistance = getDistance(...e.touches);
+        }
+    }, { passive: false });
+    canvas.addEventListener('touchmove', e => {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          const newDistance = getDistance(...e.touches);
+          const delta = (_prevTouchDistance - newDistance) / window.innerHeight; // normalize
+          _prevTouchDistance = newDistance;
+          // Evert by Z
+          _viewRotation.premultiply(MakeRotation(2, 3, delta * 0.1));
+        }
+    }, { passive: false });
     
     // GUI
     if (1) {
@@ -725,8 +786,8 @@ function init() {
 
 function animate() {
 
-    const delta = _clock.getDelta();
-    const time = _clock.getElapsedTime(); //!!! resetting _clock.oldTime twice here
+    const delta = _globalTimeScale * _clock.getDelta();
+    const time  = _globalTimeScale * _clock.getElapsedTime(); //!!! resetting _clock.oldTime twice here
     
     updateMatrices( time, delta );
 
