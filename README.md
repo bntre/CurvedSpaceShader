@@ -3,9 +3,11 @@
 This vertex shader was first written in HLSL for the Unity game Sfera: [https://bntr.itch.io/sfera](https://bntr.itch.io/sfera).  
 Now it's rewritten in GLSL for [three.js](https://threejs.org/).
 
-**Try it interactively:** [https://bntre.github.io/CurvedSpaceShader/](https://bntre.github.io/CurvedSpaceShader/)  
+**Try it live:** [https://bntre.github.io/CurvedSpaceShader/](https://bntre.github.io/CurvedSpaceShader/)  
 
-**Watch the demo video:** [https://www.youtube.com/watch?v=yhRXQAb-uh0](https://www.youtube.com/watch?v=yhRXQAb-uh0)
+**Demo video:** [https://www.youtube.com/watch?v=yhRXQAb-uh0](https://www.youtube.com/watch?v=yhRXQAb-uh0)
+
+<img src="https://img.youtube.com/vi/yhRXQAb-uh0/maxresdefault.jpg" width="600" alt="Video cover"/>
 
 ## Math Behind the Effect
 
@@ -17,8 +19,7 @@ For each object:
 
 1. The model is scaled and positioned near the center of world space.
 2. In the vertex shader:
-    - The 3D point is projected onto a 4D unit sphere:  
-      \( x^2 + y^2 + z^2 + w^2 = 1 \)
+    - The 3D point is projected onto a 4D unit sphere (x²+y²+z²+w²=1)
     - A 4D rotation is applied (each object has its own rotation).
     - The point is projected back to 3D using stereographic projection.
 
