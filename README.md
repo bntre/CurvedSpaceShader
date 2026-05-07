@@ -1,7 +1,7 @@
 # Curved Space Shader
 
-This vertex shader was first written in HLSL for the Unity game Sfera: [https://bntr.itch.io/sfera](https://bntr.itch.io/sfera).  
-Now it's rewritten in GLSL for [three.js](https://threejs.org/).
+This vertex shader was first written in HLSL for the Unity game Sfera: https://github.com/bntre/Sfera.  
+Now it's rewritten in GLSL for three.js.
 
 **Try it live:** [https://bntre.github.io/CurvedSpaceShader/](https://bntre.github.io/CurvedSpaceShader/)  
 
